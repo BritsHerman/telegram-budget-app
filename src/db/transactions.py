@@ -55,6 +55,38 @@ def get_expense_transactions_for_period(
     return result.data or []
 
 
+def get_income_transactions_for_period(
+    user_id: str, start: datetime, end: datetime
+) -> list[dict]:
+    result = (
+        get_client()
+        .table("transactions")
+        .select("amount, categories(name)")
+        .eq("user_id", user_id)
+        .eq("type", "income")
+        .gte("transacted_at", start.isoformat())
+        .lte("transacted_at", end.isoformat())
+        .execute()
+    )
+    return result.data or []
+
+
+def get_all_transactions_for_period(
+    user_id: str, start: datetime, end: datetime
+) -> list[dict]:
+    result = (
+        get_client()
+        .table("transactions")
+        .select("id, amount, type, transacted_at, categories(name)")
+        .eq("user_id", user_id)
+        .gte("transacted_at", start.isoformat())
+        .lte("transacted_at", end.isoformat())
+        .order("transacted_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
 def get_recent_transactions(user_id: str, limit: int = 10) -> list[dict]:
     result = (
         get_client()

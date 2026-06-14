@@ -81,13 +81,17 @@ def _handle_add_transaction(chat_id: int, user: dict, state: dict, text: str) ->
     budget_str = f"R{budget:.2f}" if budget is not None else "not set"
     word = "expense" if cat["type"] == "expense" else "income"
 
-    bot.send_message(
-        chat_id,
-        f"✅ Recorded R{amount:.2f} as *{word}* for *{escape_v1(cat['name'])}*.\n"
-        f"💰 Budget: {budget_str}\n"
+    lines = [
+        f"✅ Recorded R{amount:.2f} as *{word}* for *{escape_v1(cat['name'])}*.",
+        f"💰 Budget: {budget_str}",
         f"📈 {'Spent' if cat['type'] == 'expense' else 'Received'} this period: R{spent:.2f}",
-        parse_mode="Markdown",
-    )
+    ]
+
+    if cat["type"] == "expense" and budget is not None and spent > budget:
+        over = spent - budget
+        lines.append(f"\n⚠️ *You're R{over:.2f} over budget for {escape_v1(cat['name'])}!*")
+
+    bot.send_message(chat_id, "\n".join(lines), parse_mode="Markdown")
     del awaiting_reply[chat_id]
     send_main_menu(chat_id)
 

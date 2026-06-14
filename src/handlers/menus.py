@@ -20,11 +20,18 @@ def send_main_menu(chat_id: int, text: str = "👋 Welcome! How can I help you t
 def send_transactions_menu(chat_id: int, message_id: int | None = None) -> None:
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("💸 Expense",          callback_data="show_expense_cats"),
-        types.InlineKeyboardButton("💰 Income",            callback_data="show_income_cats"),
-        types.InlineKeyboardButton("🔙 Back", callback_data="back_to_main"),
+        types.InlineKeyboardButton("💸 Expense",     callback_data="show_expense_cats"),
+        types.InlineKeyboardButton("💰 Income",      callback_data="show_income_cats"),
+        types.InlineKeyboardButton("📋 History",     callback_data="view_history"),
+        types.InlineKeyboardButton("🔙 Back",        callback_data="back_to_main"),
     )
-    _send_or_edit("📝 What would you like to record today?", chat_id, message_id, markup)
+    _send_or_edit("📝 What would you like to do?", chat_id, message_id, markup)
+
+
+def cancel_markup() -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("❌ Cancel", callback_data="cancel_prompt"))
+    return markup
 
 
 def send_setup_menu(chat_id: int, message_id: int | None = None) -> None:

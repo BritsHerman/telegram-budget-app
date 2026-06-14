@@ -3,9 +3,10 @@ from telebot import types
 from src.bot_instance import bot
 from src.db.budgets import get_budget, get_all_budgets, set_budget
 from src.db.categories import get_categories, get_category_by_id, remove_category
-from src.db.transactions import delete_transaction
+from src.db.transactions import delete_transaction, get_all_transactions_for_period
 from src.db.users import resolve_user, set_budget_day
 from src.handlers.menus import (
+    cancel_markup,
     send_add_category_type_menu,
     send_main_menu,
     send_remove_category_type_menu,
@@ -16,9 +17,9 @@ from src.handlers.menus import (
     show_categories_to_remove,
     show_delete_transaction_menu,
 )
-from src.helpers import escape_v1, escape_v2
+from src.helpers import escape_v1, escape_v2, get_budget_period
 from src.state import awaiting_reply
-from src.visualization import generate_budget_chart
+from src.visualization import generate_summary_charts
 
 
 # ── Main menu ──────────────────────────────────────────────────────────────
@@ -40,11 +41,13 @@ def cb_main_menu(call):
         _send_help(chat_id)
 
     elif call.data == "main_menu_summary":
+        bot.edit_message_text("⏳ Generating your summary…", chat_id, mid)
         try:
-            buf = generate_budget_chart(user["id"], user["budget_day"])
-            bot.send_photo(chat_id, buf, caption="📊 Here's your spending summary!")
+            charts = generate_summary_charts(user["id"], user["budget_day"])
+            for buf, caption in charts:
+                bot.send_photo(chat_id, buf, caption=caption, parse_mode="Markdown")
         except Exception as e:
-            bot.send_message(chat_id, f"⚠️ Could not generate chart: {e}")
+            bot.send_message(chat_id, f"⚠️ Could not generate charts: {e}")
         send_main_menu(chat_id, "🔙 Back to the main menu:")
 
 
@@ -81,14 +84,65 @@ def cb_add_tx(call):
     emoji = "💸" if cat["type"] == "expense" else "💰"
     prompt = bot.send_message(
         chat_id,
-        f"{emoji} **Reply to this message** with the amount for *{escape_v1(cat['name'])}*:",
+        f"{emoji} *Reply to this message* with the amount for *{escape_v1(cat['name'])}*:",
         parse_mode="Markdown",
+        reply_markup=cancel_markup(),
     )
     awaiting_reply[chat_id] = {
         "action": "add_transaction",
         "category_id": category_id,
         "bot_prompt_message_id": prompt.message_id,
     }
+
+
+# ── Transaction history ─────────────────────────────────────────────────────
+
+@bot.callback_query_handler(func=lambda c: c.data == "view_history")
+def cb_view_history(call):
+    bot.answer_callback_query(call.id)
+    user = resolve_user(call.from_user)
+    chat_id = call.message.chat.id
+
+    start, end = get_budget_period(user["budget_day"])
+    txns = get_all_transactions_for_period(user["id"], start, end)
+
+    if not txns:
+        bot.edit_message_text(
+            "📋 No transactions recorded this period yet.",
+            chat_id, call.message.message_id,
+        )
+        send_main_menu(chat_id)
+        return
+
+    expenses = [t for t in txns if t["type"] == "expense"]
+    incomes  = [t for t in txns if t["type"] == "income"]
+
+    lines = [f"📋 Transactions  {start.strftime('%d %b')} – {end.strftime('%d %b')}\n"]
+
+    if expenses:
+        lines.append("💸 EXPENSES")
+        for t in expenses:
+            date = t["transacted_at"][:10]
+            lines.append(f"  • {t['categories']['name']}: R{float(t['amount']):.2f}  ({date})")
+        lines.append(f"  Total: R{sum(float(t['amount']) for t in expenses):.2f}\n")
+
+    if incomes:
+        lines.append("💰 INCOME")
+        for t in incomes:
+            date = t["transacted_at"][:10]
+            lines.append(f"  • {t['categories']['name']}: R{float(t['amount']):.2f}  ({date})")
+        lines.append(f"  Total: R{sum(float(t['amount']) for t in incomes):.2f}\n")
+
+    if expenses and incomes:
+        net = sum(float(t["amount"]) for t in incomes) - sum(float(t["amount"]) for t in expenses)
+        emoji = "✅" if net >= 0 else "⚠️"
+        lines.append(f"{emoji} Net: R{net:+.2f}")
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_to_daily"))
+    bot.edit_message_text(
+        "\n".join(lines), chat_id, call.message.message_id, reply_markup=markup
+    )
 
 
 # ── Setup — categories ──────────────────────────────────────────────────────
@@ -108,8 +162,9 @@ def cb_add_cat_type(call):
 
     prompt = bot.send_message(
         chat_id,
-        f"📝 **Reply to this message** with the name of the new {category_type} category:",
+        f"📝 *Reply to this message* with the name of the new {category_type} category:",
         parse_mode="Markdown",
+        reply_markup=cancel_markup(),
     )
     awaiting_reply[chat_id] = {
         "action": "add_category",
@@ -132,9 +187,37 @@ def cb_remove_cat_type(call):
     show_categories_to_remove(call.message.chat.id, call.message.message_id, user["id"], category_type)
 
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("remove_cat_"))
+@bot.callback_query_handler(func=lambda c: c.data.startswith("remove_cat_") and not c.data.startswith("remove_cat_type_"))
 def cb_remove_cat(call):
     category_id = call.data.removeprefix("remove_cat_")
+    bot.answer_callback_query(call.id)
+    user = resolve_user(call.from_user)
+    chat_id = call.message.chat.id
+    mid = call.message.message_id
+
+    cat = get_category_by_id(user["id"], category_id)
+    if not cat:
+        bot.edit_message_text("⚠️ Category not found.", chat_id, mid)
+        send_main_menu(chat_id)
+        return
+
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ Yes, delete it", callback_data=f"confirm_remove_cat_{category_id}"),
+        types.InlineKeyboardButton("❌ Keep it",        callback_data="back_to_setup"),
+    )
+    bot.edit_message_text(
+        f"⚠️ Delete *{escape_v1(cat['name'])}*?\n\n"
+        f"This will also remove its budget and cannot be undone.",
+        chat_id, mid,
+        parse_mode="Markdown",
+        reply_markup=markup,
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_remove_cat_"))
+def cb_confirm_remove_cat(call):
+    category_id = call.data.removeprefix("confirm_remove_cat_")
     bot.answer_callback_query(call.id)
     user = resolve_user(call.from_user)
     chat_id = call.message.chat.id
@@ -142,9 +225,12 @@ def cb_remove_cat(call):
     cat = get_category_by_id(user["id"], category_id)
     remove_category(user["id"], category_id)
 
-    name = cat["name"] if cat else category_id
-    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
-    bot.send_message(chat_id, f"✅ Category *{escape_v1(name)}* removed.", parse_mode="Markdown")
+    name = cat["name"] if cat else "Category"
+    bot.edit_message_text(
+        f"✅ *{escape_v1(name)}* deleted.",
+        chat_id, call.message.message_id,
+        parse_mode="Markdown",
+    )
     send_main_menu(chat_id)
 
 
@@ -155,8 +241,8 @@ def cb_view_cats(call):
     chat_id = call.message.chat.id
 
     expense_cats = get_categories(user["id"], "expense")
-    income_cats = get_categories(user["id"], "income")
-    budgets = get_all_budgets(user["id"])
+    income_cats  = get_categories(user["id"], "income")
+    budgets      = get_all_budgets(user["id"])
 
     lines = ["📋 *All categories:*\n"]
     lines.append("*Expenses*")
@@ -197,7 +283,7 @@ def cb_confirm_delete(call):
     bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
 
     if success:
-        bot.send_message(chat_id, "✅ Transaction deleted successfully.")
+        bot.send_message(chat_id, "✅ Transaction deleted.")
     else:
         bot.send_message(chat_id, "⚠️ Could not delete that transaction (already gone?).")
     send_main_menu(chat_id)
@@ -231,9 +317,10 @@ def cb_budget_cat(call):
     bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
     prompt = bot.send_message(
         chat_id,
-        f"💰 **Reply to this message** with the budget for *{escape_v1(cat['name'])}*"
+        f"💰 *Reply to this message* with the budget for *{escape_v1(cat['name'])}*"
         f" (current: {escape_v1(current_str)}). Enter 0 to remove.",
         parse_mode="Markdown",
+        reply_markup=cancel_markup(),
     )
     awaiting_reply[chat_id] = {
         "action": "set_budget",
@@ -253,14 +340,27 @@ def cb_set_budget_day(call):
     bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
     prompt = bot.send_message(
         chat_id,
-        f"📅 **Reply to this message** with the day of the month (1–31) for your budget period "
+        f"📅 *Reply to this message* with the day of the month (1–31) for your budget period "
         f"(current: {user['budget_day']}):",
         parse_mode="Markdown",
+        reply_markup=cancel_markup(),
     )
     awaiting_reply[chat_id] = {
         "action": "set_budget_day",
         "bot_prompt_message_id": prompt.message_id,
     }
+
+
+# ── Cancel prompt ───────────────────────────────────────────────────────────
+
+@bot.callback_query_handler(func=lambda c: c.data == "cancel_prompt")
+def cb_cancel_prompt(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    if chat_id in awaiting_reply:
+        del awaiting_reply[chat_id]
+    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
+    send_main_menu(chat_id, "❌ Cancelled. Back to the main menu:")
 
 
 # ── Navigation back buttons ─────────────────────────────────────────────────
@@ -304,22 +404,30 @@ def _send_help(chat_id: int) -> None:
         "2\\. Choose *Expense* or *Income*\n"
         "3\\. Tap the category\n"
         "4\\. The bot sends you a prompt — *reply directly to that message* with the amount \\(e\\.g\\. 250 or 49\\.99\\)\n"
+        "5\\. Tap ❌ Cancel on the prompt if you change your mind\n"
         "\n"
         "*⚙️ Setup options*\n"
         "• *Add Category* — create a new expense or income label\n"
-        "• *Remove Category* — delete a category and its budget\n"
+        "• *Remove Category* — delete a category \\(asks for confirmation first\\)\n"
         "• *View Categories* — see all your categories and current budgets\n"
         "• *Budget Amounts* — set or update a monthly budget for any category\n"
         "• *Set Budget Day* — choose which day of the month your period resets \\(default: 25\\)\n"
         "• *Delete Transaction* — shows your last 10 transactions as buttons, tap one to delete it\n"
         "\n"
+        "*📋 History*\n"
+        "Shows all transactions recorded in the current budget period, grouped by type with totals and a net position\\.\n"
+        "\n"
         "*📊 Summary*\n"
-        "Shows a bar chart of spent vs remaining budget for each expense category in the current period\\.\n"
+        "Sends three charts:\n"
+        "• Budget Tracker — spent vs remaining per category\n"
+        "• Spending Breakdown — pie chart of where your money went\n"
+        "• Net Position — total income vs total expenses with your net for the period\n"
         "\n"
         "*💡 Tips*\n"
         "• Each person who messages the bot gets their own private data\n"
-        "• You must *reply to the bot's prompt message* when entering amounts — don't just send a new message\n"
-        "• Enter 0 as a budget amount to remove the budget for that category"
+        "• You must *reply to the bot's prompt message* when entering amounts\n"
+        "• Enter 0 as a budget amount to remove the budget for that category\n"
+        "• If you go over budget you'll see a warning when recording the transaction"
     )
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main"))
