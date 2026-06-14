@@ -1,0 +1,36 @@
+# Environment variables — NEVER commit real credentials
+.env
+.env.local
+.env.production
+.env.*.local
+# Allow the example file through
+!.env.example
+
+# Old SQLite databases
+*.db
+
+# Old text-file storage (migrated to Supabase)
+budget_day.txt
+expense_categories.txt
+income_categories.txt
+
+# Generated chart images
+*.jpg
+*.jpeg
+*.png
+
+# Old data folder
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/

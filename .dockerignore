@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+__pycache__
+*.pyc
+*.pyo
+code/
+data/
+*.db
+*.txt
+*.jpg
