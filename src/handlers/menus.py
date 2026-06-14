@@ -1,12 +1,29 @@
 """Functions that send or edit Telegram menus. No business logic here."""
 from telebot import types
 
+from src import state
 from src.bot_instance import bot
 from src.db.categories import get_categories
 from src.db.transactions import get_recent_transactions
 
 
+def clear_last_menu(chat_id: int) -> None:
+    """Remove inline buttons from the last tracked menu message for this chat."""
+    mid = state.last_menu_message_id.pop(chat_id, None)
+    if mid:
+        try:
+            bot.edit_message_reply_markup(chat_id=chat_id, message_id=mid, reply_markup=None)
+        except Exception:
+            pass
+
+
+def track_menu_message(chat_id: int, message_id: int) -> None:
+    """Mark a message as the current active keyboard so it can be cleared later."""
+    state.last_menu_message_id[chat_id] = message_id
+
+
 def send_main_menu(chat_id: int, text: str = "👋 Welcome! How can I help you today?") -> None:
+    clear_last_menu(chat_id)
     markup = types.InlineKeyboardMarkup()
     markup.add(
         types.InlineKeyboardButton("📅 Transactions", callback_data="main_menu_daily"),
@@ -14,7 +31,8 @@ def send_main_menu(chat_id: int, text: str = "👋 Welcome! How can I help you t
         types.InlineKeyboardButton("📊 Summary",      callback_data="main_menu_summary"),
         types.InlineKeyboardButton("❓ Help",          callback_data="main_menu_help"),
     )
-    bot.send_message(chat_id, text, reply_markup=markup)
+    msg = bot.send_message(chat_id, text, reply_markup=markup)
+    track_menu_message(chat_id, msg.message_id)
 
 
 def send_transactions_menu(chat_id: int, message_id: int | None = None) -> None:
@@ -164,4 +182,7 @@ def _send_or_edit(
     if message_id:
         bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
     else:
-        bot.send_message(chat_id, text, reply_markup=markup)
+        clear_last_menu(chat_id)
+        msg = bot.send_message(chat_id, text, reply_markup=markup)
+        if markup:
+            track_menu_message(chat_id, msg.message_id)

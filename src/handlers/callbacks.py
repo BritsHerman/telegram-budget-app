@@ -7,6 +7,7 @@ from src.db.transactions import delete_transaction, get_all_transactions_for_per
 from src.db.users import resolve_user, set_budget_day
 from src.handlers.menus import (
     cancel_markup,
+    clear_last_menu,
     send_add_category_type_menu,
     send_main_menu,
     send_remove_category_type_menu,
@@ -16,6 +17,7 @@ from src.handlers.menus import (
     show_categories_for_transaction,
     show_categories_to_remove,
     show_delete_transaction_menu,
+    track_menu_message,
 )
 from src.helpers import escape_v1, escape_v2, get_budget_period
 from src.state import awaiting_reply
@@ -44,8 +46,12 @@ def cb_main_menu(call):
         bot.edit_message_text("⏳ Generating your summary…", chat_id, mid)
         try:
             charts = generate_summary_charts(user["id"], user["budget_day"])
-            for buf, caption in charts:
-                bot.send_photo(chat_id, buf, caption=caption, parse_mode="Markdown")
+            if charts:
+                media = [
+                    types.InputMediaPhoto(buf, caption=caption, parse_mode="Markdown")
+                    for buf, caption in charts
+                ]
+                bot.send_media_group(chat_id, media)
         except Exception as e:
             bot.send_message(chat_id, f"⚠️ Could not generate charts: {e}")
         send_main_menu(chat_id, "🔙 Back to the main menu:")
@@ -260,7 +266,9 @@ def cb_view_cats(call):
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_to_setup"))
-    bot.send_message(chat_id, "\n".join(lines), parse_mode="MarkdownV2", reply_markup=markup)
+    clear_last_menu(chat_id)
+    msg = bot.send_message(chat_id, "\n".join(lines), parse_mode="MarkdownV2", reply_markup=markup)
+    track_menu_message(chat_id, msg.message_id)
 
 
 # ── Setup — delete transaction ──────────────────────────────────────────────
@@ -418,7 +426,7 @@ def _send_help(chat_id: int) -> None:
         "Shows all transactions recorded in the current budget period, grouped by type with totals and a net position\\.\n"
         "\n"
         "*📊 Summary*\n"
-        "Sends three charts:\n"
+        "Sends a swipeable album with three charts:\n"
         "• Budget Tracker — spent vs remaining per category\n"
         "• Spending Breakdown — pie chart of where your money went\n"
         "• Net Position — total income vs total expenses with your net for the period\n"
@@ -431,4 +439,6 @@ def _send_help(chat_id: int) -> None:
     )
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main"))
-    bot.send_message(chat_id, text, parse_mode="MarkdownV2", reply_markup=markup)
+    clear_last_menu(chat_id)
+    msg = bot.send_message(chat_id, text, parse_mode="MarkdownV2", reply_markup=markup)
+    track_menu_message(chat_id, msg.message_id)

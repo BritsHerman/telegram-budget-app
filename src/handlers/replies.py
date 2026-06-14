@@ -24,6 +24,16 @@ def _is_awaited_reply(message) -> bool:
     return True
 
 
+def _clear_prompt(chat_id: int, state: dict) -> None:
+    """Remove the cancel button from the prompt message after the user has replied."""
+    mid = state.get("bot_prompt_message_id")
+    if mid:
+        try:
+            bot.edit_message_reply_markup(chat_id=chat_id, message_id=mid, reply_markup=None)
+        except Exception:
+            pass
+
+
 @bot.message_handler(func=_is_awaited_reply, content_types=["text"])
 def process_reply(message):
     chat_id = message.chat.id
@@ -68,6 +78,7 @@ def _handle_add_transaction(chat_id: int, user: dict, state: dict, text: str) ->
     cat = get_category_by_id(user["id"], category_id)
     if not cat:
         bot.send_message(chat_id, "⚠️ Category no longer exists. Starting over.")
+        _clear_prompt(chat_id, state)
         del awaiting_reply[chat_id]
         send_main_menu(chat_id)
         return
@@ -91,8 +102,9 @@ def _handle_add_transaction(chat_id: int, user: dict, state: dict, text: str) ->
         over = spent - budget
         lines.append(f"\n⚠️ *You're R{over:.2f} over budget for {escape_v1(cat['name'])}!*")
 
-    bot.send_message(chat_id, "\n".join(lines), parse_mode="Markdown")
+    _clear_prompt(chat_id, state)
     del awaiting_reply[chat_id]
+    bot.send_message(chat_id, "\n".join(lines), parse_mode="Markdown")
     send_main_menu(chat_id)
 
 
@@ -118,12 +130,13 @@ def _handle_add_category(chat_id: int, user: dict, state: dict, text: str) -> No
         )
         return
 
+    _clear_prompt(chat_id, state)
+    del awaiting_reply[chat_id]
     bot.send_message(
         chat_id,
         f"✅ Added *{escape_v1(name)}* to {category_type} categories.",
         parse_mode="Markdown",
     )
-    del awaiting_reply[chat_id]
     send_main_menu(chat_id)
 
 
@@ -147,6 +160,8 @@ def _handle_set_budget(chat_id: int, user: dict, state: dict, text: str) -> None
 
     set_budget(user["id"], category_id, amount)
 
+    _clear_prompt(chat_id, state)
+    del awaiting_reply[chat_id]
     if amount == 0:
         bot.send_message(chat_id, f"✅ Budget for *{escape_v1(name)}* removed.", parse_mode="Markdown")
     else:
@@ -155,7 +170,6 @@ def _handle_set_budget(chat_id: int, user: dict, state: dict, text: str) -> None
             f"✅ Budget for *{escape_v1(name)}* set to R{amount:.2f}.",
             parse_mode="Markdown",
         )
-    del awaiting_reply[chat_id]
     send_main_menu(chat_id)
 
 
@@ -174,6 +188,7 @@ def _handle_set_budget_day(chat_id: int, user: dict, state: dict, text: str) -> 
         return
 
     set_budget_day(user["id"], day)
-    bot.send_message(chat_id, f"✅ Budget period start day set to *{day}*.", parse_mode="Markdown")
+    _clear_prompt(chat_id, state)
     del awaiting_reply[chat_id]
+    bot.send_message(chat_id, f"✅ Budget period start day set to *{day}*.", parse_mode="Markdown")
     send_main_menu(chat_id)
