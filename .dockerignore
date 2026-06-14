@@ -7,5 +7,7 @@ __pycache__
 code/
 data/
 *.db
-*.txt
+budget_day.txt
+expense_categories.txt
+income_categories.txt
 *.jpg
