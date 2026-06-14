@@ -36,6 +36,9 @@ def cb_main_menu(call):
     elif call.data == "main_menu_setup":
         send_setup_menu(chat_id, mid)
 
+    elif call.data == "main_menu_help":
+        _send_help(chat_id)
+
     elif call.data == "main_menu_summary":
         try:
             buf = generate_budget_chart(user["id"], user["budget_day"])
@@ -283,3 +286,41 @@ def cb_back(call):
 @bot.callback_query_handler(func=lambda c: c.data == "ignore_header")
 def cb_ignore(call):
     bot.answer_callback_query(call.id)
+
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+
+def _send_help(chat_id: int) -> None:
+    text = (
+        "❓ *How to use this bot*\n"
+        "\n"
+        "*🆕 First time setup*\n"
+        "1\\. Go to ⚙️ Setup → Add Category and create your expense and income categories \\(e\\.g\\. Groceries, Salary\\)\n"
+        "2\\. Go to Setup → Budget Amounts to set a monthly limit per category\n"
+        "3\\. Optionally set your budget period start day \\(default is the 25th\\)\n"
+        "\n"
+        "*📅 Recording a transaction*\n"
+        "1\\. Tap *Transactions* on the main menu\n"
+        "2\\. Choose *Expense* or *Income*\n"
+        "3\\. Tap the category\n"
+        "4\\. The bot sends you a prompt — *reply directly to that message* with the amount \\(e\\.g\\. 250 or 49\\.99\\)\n"
+        "\n"
+        "*⚙️ Setup options*\n"
+        "• *Add Category* — create a new expense or income label\n"
+        "• *Remove Category* — delete a category and its budget\n"
+        "• *View Categories* — see all your categories and current budgets\n"
+        "• *Budget Amounts* — set or update a monthly budget for any category\n"
+        "• *Set Budget Day* — choose which day of the month your period resets \\(default: 25\\)\n"
+        "• *Delete Transaction* — shows your last 10 transactions as buttons, tap one to delete it\n"
+        "\n"
+        "*📊 Summary*\n"
+        "Shows a bar chart of spent vs remaining budget for each expense category in the current period\\.\n"
+        "\n"
+        "*💡 Tips*\n"
+        "• Each person who messages the bot gets their own private data\n"
+        "• You must *reply to the bot's prompt message* when entering amounts — don't just send a new message\n"
+        "• Enter 0 as a budget amount to remove the budget for that category"
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main"))
+    bot.send_message(chat_id, text, parse_mode="MarkdownV2", reply_markup=markup)

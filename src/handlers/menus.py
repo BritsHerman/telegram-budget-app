@@ -12,6 +12,7 @@ def send_main_menu(chat_id: int, text: str = "👋 Welcome! How can I help you t
         types.InlineKeyboardButton("📅 Transactions", callback_data="main_menu_daily"),
         types.InlineKeyboardButton("⚙️ Setup",        callback_data="main_menu_setup"),
         types.InlineKeyboardButton("📊 Summary",      callback_data="main_menu_summary"),
+        types.InlineKeyboardButton("❓ Help",          callback_data="main_menu_help"),
     )
     bot.send_message(chat_id, text, reply_markup=markup)
 

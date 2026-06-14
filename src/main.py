@@ -8,7 +8,7 @@ from src.db.client import get_client
 def main() -> None:
     get_client()  # fail fast if Supabase credentials are wrong
     print("Bot polling started…")
-    bot.infinity_polling(timeout=30, long_polling_timeout=15)
+    bot.infinity_polling(timeout=30, long_polling_timeout=15, skip_pending=True)
 
 
 if __name__ == "__main__":
